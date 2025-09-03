@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5AE4732F2E68946500A678ED /* SocketServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE4732E2E68946400A678ED /* SocketServer.swift */; };
+		5AE473312E68946F00A678ED /* SocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE473302E68946F00A678ED /* SocketClient.swift */; };
 		6B8F97B323D828CB00BDB90D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6B8F97B223D828CB00BDB90D /* Assets.xcassets */; };
 		6B8F97C123D82A1300BDB90D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8F97C023D82A1300BDB90D /* main.swift */; };
 		6B8F97CA23D82D2100BDB90D /* RightClickActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8F97C923D82D2100BDB90D /* RightClickActions.swift */; };
@@ -122,7 +124,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		6B8F97AD23D828CA00BDB90D /* FinderMenu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FinderMenu.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5AE4732E2E68946400A678ED /* SocketServer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SocketServer.swift; sourceTree = "<group>"; };
+		5AE473302E68946F00A678ED /* SocketClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SocketClient.swift; sourceTree = "<group>"; };
+		6B8F97AD23D828CA00BDB90D /*  */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = ""; sourceTree = BUILT_PRODUCTS_DIR; };
 		6B8F97B223D828CB00BDB90D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6B8F97B723D828CB00BDB90D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		6B8F97B823D828CB00BDB90D /* FinderMenu.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FinderMenu.entitlements; sourceTree = "<group>"; };
@@ -194,7 +198,7 @@
 		6B8F97AE23D828CA00BDB90D /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				6B8F97AD23D828CA00BDB90D /* FinderMenu.app */,
+				6B8F97AD23D828CA00BDB90D /*  */,
 				6B8F97C723D82D2100BDB90D /* FinderMenuItems.appex */,
 				6B8F988F23DD3B1C00BDB90D /* FinderMenuService.app */,
 				6BF9386123DD79880016EE36 /* Commons.framework */,
@@ -217,6 +221,7 @@
 		6B8F97C823D82D2100BDB90D /* FinderMenuItems */ = {
 			isa = PBXGroup;
 			children = (
+				5AE473302E68946F00A678ED /* SocketClient.swift */,
 				6B8F97C923D82D2100BDB90D /* RightClickActions.swift */,
 				6B8F97CB23D82D2100BDB90D /* Info.plist */,
 				6B8F97CC23D82D2100BDB90D /* FinderMenuItems.entitlements */,
@@ -227,6 +232,7 @@
 		6B8F989023DD3B1C00BDB90D /* FinderMenuService */ = {
 			isa = PBXGroup;
 			children = (
+				5AE4732E2E68946400A678ED /* SocketServer.swift */,
 				6B8F989823DD3B1D00BDB90D /* Info.plist */,
 				6B8F989923DD3B1D00BDB90D /* FinderMenuService.entitlements */,
 				6BF9384223DD71180016EE36 /* main.swift */,
@@ -310,7 +316,7 @@
 			);
 			name = FinderMenu;
 			productName = FinderMenu;
-			productReference = 6B8F97AD23D828CA00BDB90D /* FinderMenu.app */;
+			productReference = 6B8F97AD23D828CA00BDB90D /*  */;
 			productType = "com.apple.product-type.application";
 		};
 		6B8F97C623D82D2100BDB90D /* FinderMenuItems */ = {
@@ -467,6 +473,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6B8F97CA23D82D2100BDB90D /* RightClickActions.swift in Sources */,
+				5AE473312E68946F00A678ED /* SocketClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -475,6 +482,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6BF9384323DD71180016EE36 /* main.swift in Sources */,
+				5AE4732F2E68946500A678ED /* SocketServer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

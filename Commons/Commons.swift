@@ -23,71 +23,122 @@ public let MENU_ITEM_CLICKED_NOTIF = "menuItemClickedNotif"
 public let MENU_ITEM_INFO_NOTIF = "menuItemInfoNotif"
 public let MENU_ITEM_INFO_REQUEST_NOTIF = "menuItemInfoRequestNotif"
 
+// MARK: - Socket Communication
+
+// App Group helper for socket communication
+public class AppGroupHelper {
+    public static let appGroupID = "com.samiyuru.FinderMenu"
+    public static let socketFileName = "finder-menu.sock"
+
+    public static func getSocketPath() -> String? {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) else {
+            NSLog("Failed to get App Group container URL for \(appGroupID)")
+            return nil
+        }
+
+        return containerURL.appendingPathComponent(socketFileName).path
+    }
+
+    public static func getAppGroupContainerURL() -> URL? {
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
+    }
+}
+
+// Socket message types
+public enum SocketMessageType: String, Codable {
+    case requestMenuItems = "REQUEST_MENU_ITEMS"
+    case menuItemsResponse = "MENU_ITEMS_RESPONSE"
+    case menuItemClicked = "MENU_ITEM_CLICKED"
+}
+
+// Socket message wrapper
+public struct SocketMessage: Codable {
+    public let type: SocketMessageType
+    public let payload: String
+
+    public init(type: SocketMessageType, payload: String) {
+        self.type = type
+        self.payload = payload
+    }
+
+    public func toJSON() -> String? {
+        guard let jsonData = try? JSONEncoder().encode(self) else { return nil }
+        return String(data: jsonData, encoding: .utf8)
+    }
+
+    public static func fromJSON(_ jsonString: String) -> SocketMessage? {
+        guard let jsonData = jsonString.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(SocketMessage.self, from: jsonData)
+    }
+}
+
 // Get the directory for the menu item programs.
 // The programs can be apple scripts, bash scripts or executables.
 public func programsDir() -> URL {
     // Name of the menu programs directory.
     let menuProgramsDirName = ".findermenu"
-    
+
     // Get the path to user home dir.
     let scriptParentDirURL = FileManager.default.homeDirectoryForCurrentUser
 
     // Get the URL for menu programs dir path.
     let menuProgramsDirURL = scriptParentDirURL.appendingPathComponent(menuProgramsDirName)
-    
+
     return menuProgramsDirURL
 }
 
 // Class to represent an item in the right click menu.
 public class MenuItemInfo: Encodable, Decodable {
-    
+
     public var id: Int
     public var title: String
-    
+
     public init(id: Int, title: String) {
         self.id = id
         self.title = title
     }
-    
+
     public static func fromJson(menuItemInfosStr: String?) -> [MenuItemInfo]? {
         guard let jsonData = menuItemInfosStr?.data(using: .utf8) else {
             return nil
         }
         return try? JSONDecoder().decode([MenuItemInfo].self, from: jsonData)
     }
-    
+
     public static func json(menuItemInfos: [MenuItemInfo]?) -> String? {
         guard let jsonData =  (try? JSONEncoder().encode(menuItemInfos)) else {
             return nil
         }
         return String(data: jsonData, encoding: .utf8)
     }
-    
+
 }
 
 // Class to represent a click of a right click item.
 public class MenuItemClickInfo: Encodable, Decodable {
-    
+
     public var id: Int
     public var target: String
-    
+
     public init(id: Int, target: String) {
         self.id = id
         self.target = target
     }
-    
+
     public static func fromJson(str: String?) -> MenuItemClickInfo? {
         guard let jsonData = str?.data(using: .utf8) else {
             return nil
         }
         return try? JSONDecoder().decode(MenuItemClickInfo.self, from: jsonData)
     }
-    
+
     public func json() -> String? {
         guard let jsonData =  (try? JSONEncoder().encode(self)) else {
             return nil
         }
         return String(data: jsonData, encoding: .utf8)
     }
-    
+
 }

@@ -1,0 +1,43 @@
+{
+  "name": "ElectronMenu",
+  "version": "1.0.0",
+  "description": "Electron app with a custom Finder right-click menu",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "app:dist": "electron-builder"
+  },
+  "keywords": [
+    "Electron",
+    "quick",
+    "start",
+    "tutorial",
+    "demo"
+  ],
+  "author": "GitHub",
+  "license": "CC0-1.0",
+  "devDependencies": {
+    "electron": "^37.4.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.samiyuru.ElectronMenu",
+    "mac": {
+      "identity": null,
+      "entitlements": "ElectronMenu.entitlements",
+      "extraFiles": [
+        {
+          "from": "PlugIns/",
+          "to": "PlugIns/"
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "resources/service",
+          "to": "service"
+        }
+      ],
+      "target": ["zip"]
+    }
+  }
+}
