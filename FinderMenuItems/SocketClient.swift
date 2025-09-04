@@ -22,6 +22,8 @@ class SocketClient {
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 10
     private var cachedMenuItems: [MenuItemInfo] = []
+    private var requestId = 0
+    private var pendingRequests: [Int: (([MenuItemInfo]) -> Void)] = [:]
 
     weak var delegate: SocketClientDelegate?
 
@@ -51,6 +53,11 @@ class SocketClient {
 
     func getCachedMenuItems() -> [MenuItemInfo] {
         return cachedMenuItems
+    }
+
+    private func getNextRequestId() -> Int {
+        requestId += 1
+        return requestId
     }
 
     private func establishConnection() {
@@ -120,6 +127,7 @@ class SocketClient {
 
     private func listenForMessages() {
         var buffer = [UInt8](repeating: 0, count: 4096)
+        var messageBuffer = ""
 
         while isConnected {
             let bytesRead = recv(socketFileDescriptor, &buffer, buffer.count, 0)
@@ -130,40 +138,72 @@ class SocketClient {
                 break
             }
 
-            guard let messageString = String(bytes: buffer[..<bytesRead], encoding: .utf8) else {
+            guard let receivedString = String(bytes: buffer[..<bytesRead], encoding: .utf8) else {
                 NSLog("Failed to decode message")
                 continue
             }
 
-            handleMessage(messageString)
+            // Append to message buffer
+            messageBuffer += receivedString
+
+            // Process complete messages (delimited by newlines)
+            let lines = messageBuffer.components(separatedBy: "\n")
+            messageBuffer = lines.last ?? "" // Keep incomplete line in buffer
+
+            // Process each complete line as a message
+            for line in lines.dropLast() {
+                if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    handleMessage(line.trimmingCharacters(in: .whitespaces))
+                }
+            }
         }
     }
 
     private func handleMessage(_ messageString: String) {
-        guard let message = SocketMessage.fromJSON(messageString) else {
-            NSLog("Failed to parse socket message: \(messageString)")
+        guard let message = JsonRpcMessage.fromJSON(messageString) else {
+            NSLog("Failed to parse JSON-RPC message: \(messageString)")
             return
         }
 
-        NSLog("Received message type: \(message.type.rawValue)")
-
-        switch message.type {
-        case .menuItemsResponse:
-            handleMenuItemsResponse(payload: message.payload)
-        case .requestMenuItems, .menuItemClicked:
-            // Not expected from server
-            NSLog("Unexpected message type from server: \(message.type.rawValue)")
+        if message.isResponse {
+            handleResponse(message)
+        } else if message.isRequest {
+            NSLog("Unexpected request from server: \(message.method ?? "unknown")")
         }
     }
 
-    private func handleMenuItemsResponse(payload: String) {
-        guard let menuItems = MenuItemInfo.fromJson(menuItemInfosStr: payload) else {
-            NSLog("Failed to parse menu items from payload")
+    private func handleResponse(_ message: JsonRpcMessage) {
+        guard let id = message.id else {
+            NSLog("Response without ID")
             return
+        }
+
+        if let error = message.error {
+            NSLog("JSON-RPC error: \(error.code) - \(error.message)")
+            return
+        }
+
+        guard let result = message.result,
+              let menuItemsArray = result["menuItems"] as? [[String: Any]] else {
+            NSLog("Invalid response format")
+            return
+        }
+
+        let menuItems = menuItemsArray.compactMap { dict -> MenuItemInfo? in
+            guard let id = dict["id"] as? Int,
+                  let title = dict["title"] as? String else {
+                return nil
+            }
+            return MenuItemInfo(id: id, title: title)
         }
 
         // Cache the menu items
         cachedMenuItems = menuItems
+
+        // Execute pending callback
+        if let callback = pendingRequests.removeValue(forKey: id) {
+            callback(menuItems)
+        }
 
         // Notify delegate on main queue
         DispatchQueue.main.async {
@@ -177,7 +217,9 @@ class SocketClient {
             return
         }
 
-        let message = SocketMessage(type: .requestMenuItems, payload: "")
+        let id = getNextRequestId()
+        let message = JsonRpcMessage(method: "getMenuItems", id: id)
+
         sendMessage(message)
     }
 
@@ -187,23 +229,24 @@ class SocketClient {
             return
         }
 
-        let clickInfo = MenuItemClickInfo(id: id, target: target.path)
-        guard let clickInfoJson = clickInfo.json() else {
-            NSLog("Failed to serialize menu item click info")
-            return
-        }
+        let params = [
+            "id": id,
+            "target": target.path
+        ] as [String: Any]
 
-        let message = SocketMessage(type: .menuItemClicked, payload: clickInfoJson)
+        // Send as notification (no response expected)
+        let message = JsonRpcMessage(method: "menuItemClicked", params: params)
         sendMessage(message)
     }
 
-    private func sendMessage(_ message: SocketMessage) {
+    private func sendMessage(_ message: JsonRpcMessage) {
         guard let messageJson = message.toJSON() else {
-            NSLog("Failed to serialize message")
+            NSLog("Failed to serialize JSON-RPC message")
             return
         }
 
-        let data = Data(messageJson.utf8)
+        let messageWithNewline = messageJson + "\n"
+        let data = Data(messageWithNewline.utf8)
         let result = data.withUnsafeBytes { bytes in
             send(socketFileDescriptor, bytes.bindMemory(to: UInt8.self).baseAddress, data.count, 0)
         }
@@ -212,7 +255,7 @@ class SocketClient {
             NSLog("Failed to send message: \(String(cString: strerror(errno)))")
             handleDisconnection()
         } else {
-            NSLog("Sent message type: \(message.type.rawValue)")
+            NSLog("Sent JSON-RPC method: \(message.method ?? "response")")
         }
     }
 

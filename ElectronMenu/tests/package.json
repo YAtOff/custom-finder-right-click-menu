@@ -1,0 +1,21 @@
+{
+  "name": "findermenu-tests",
+  "version": "1.0.0",
+  "description": "Test suite for FinderMenu service",
+  "main": "test-client.js",
+  "scripts": {
+    "test": "node test-client.js",
+    "test:verbose": "node test-client.js --verbose"
+  },
+  "keywords": [
+    "test",
+    "findermenu",
+    "json-rpc",
+    "socket"
+  ],
+  "author": "GitHub Copilot",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

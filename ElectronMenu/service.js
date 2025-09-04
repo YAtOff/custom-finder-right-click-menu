@@ -26,12 +26,89 @@ const ScriptTypes = {
     EXECUTABLE: 'executable'
 };
 
-// Socket message types
-const SocketMessageType = {
-    REQUEST_MENU_ITEMS: 'REQUEST_MENU_ITEMS',
-    MENU_ITEMS_RESPONSE: 'MENU_ITEMS_RESPONSE',
-    MENU_ITEM_CLICKED: 'MENU_ITEM_CLICKED'
+// JSON-RPC Error Codes
+const JsonRpcErrorCodes = {
+    PARSE_ERROR: -32700,
+    INVALID_REQUEST: -32600,
+    METHOD_NOT_FOUND: -32601,
+    INVALID_PARAMS: -32602,
+    INTERNAL_ERROR: -32603
 };
+
+// JSON-RPC Message class
+class JsonRpcMessage {
+    constructor() {
+        this.jsonrpc = "2.0";
+    }
+
+    static createRequest(method, params = null, id = null) {
+        const message = new JsonRpcMessage();
+        message.method = method;
+        if (params !== null) message.params = params;
+        if (id !== null) message.id = id;
+        return message;
+    }
+
+    static createResponse(result, id) {
+        const message = new JsonRpcMessage();
+        message.result = result;
+        message.id = id;
+        return message;
+    }
+
+    static createError(code, message, data = null, id = null) {
+        const response = new JsonRpcMessage();
+        response.error = { code, message };
+        if (data !== null) response.error.data = data;
+        if (id !== null) response.id = id;
+        return response;
+    }
+
+    static fromJSON(jsonString) {
+        try {
+            const obj = JSON.parse(jsonString);
+            if (obj.jsonrpc !== "2.0") {
+                return null;
+            }
+            return Object.assign(new JsonRpcMessage(), obj);
+        } catch (error) {
+            return null;
+        }
+    }
+
+    toJSON() {
+        // Return a plain object for JSON.stringify to serialize
+        const obj = { jsonrpc: this.jsonrpc };
+
+        if (this.method !== undefined) obj.method = this.method;
+        if (this.params !== undefined) obj.params = this.params;
+        if (this.id !== undefined) obj.id = this.id;
+        if (this.result !== undefined) obj.result = this.result;
+        if (this.error !== undefined) obj.error = this.error;
+
+        return obj;
+    }
+
+    toString() {
+        try {
+            return JSON.stringify(this);
+        } catch (error) {
+            return null;
+        }
+    }
+
+    isRequest() {
+        return this.method !== undefined;
+    }
+
+    isNotification() {
+        return this.isRequest() && this.id === undefined;
+    }
+
+    isResponse() {
+        return this.result !== undefined || this.error !== undefined;
+    }
+}
 
 // Helper functions
 function getSocketPath() {
@@ -106,35 +183,6 @@ class MenuItemClickInfo {
             });
         } catch (error) {
             log(`Failed to serialize MenuItemClickInfo: ${error.message}`);
-            return null;
-        }
-    }
-}
-
-// Socket Message class
-class SocketMessage {
-    constructor(type, payload) {
-        this.type = type;
-        this.payload = payload;
-    }
-
-    toJSON() {
-        try {
-            return JSON.stringify({
-                type: this.type,
-                payload: this.payload
-            });
-        } catch (error) {
-            log(`Failed to serialize SocketMessage: ${error.message}`);
-            return null;
-        }
-    }
-
-    static fromJSON(jsonString) {
-        try {
-            return Object.assign(new SocketMessage(), JSON.parse(jsonString));
-        } catch (error) {
-            log(`Failed to parse SocketMessage JSON: ${error.message}`);
             return null;
         }
     }
@@ -321,9 +369,20 @@ class SocketServer {
     }
 
     handleClient(socket) {
+        let buffer = '';
+
         socket.on('data', (data) => {
-            const messageString = data.toString('utf8');
-            this.handleMessage(messageString, socket);
+            buffer += data.toString('utf8');
+
+            // Process complete lines (messages)
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+            for (const line of lines) {
+                if (line.trim().length > 0) {
+                    this.handleMessage(line.trim(), socket);
+                }
+            }
         });
 
         socket.on('end', () => {
@@ -336,69 +395,111 @@ class SocketServer {
     }
 
     handleMessage(messageString, socket) {
-        const message = SocketMessage.fromJSON(messageString);
+        const message = JsonRpcMessage.fromJSON(messageString);
         if (!message) {
-            log(`Failed to parse socket message: ${messageString}`);
+            const errorResponse = JsonRpcMessage.createError(JsonRpcErrorCodes.PARSE_ERROR, "Parse error");
+            const errorJson = JSON.stringify(errorResponse);
+            if (errorJson) {
+                socket.write(errorJson + '\n');
+            }
             return;
         }
 
-        log(`Received message type: ${message.type}`);
+        if (!message.isRequest()) {
+            const errorResponse = JsonRpcMessage.createError(JsonRpcErrorCodes.INVALID_REQUEST, "Invalid Request", null, message.id);
+            const errorJson = JSON.stringify(errorResponse);
+            if (errorJson) {
+                socket.write(errorJson + '\n');
+            }
+            return;
+        }
 
-        switch (message.type) {
-            case SocketMessageType.REQUEST_MENU_ITEMS:
-                this.sendMenuItems(socket);
+        log(`Received JSON-RPC method: ${message.method}`);
+
+        switch (message.method) {
+            case 'getMenuItems':
+                this.handleGetMenuItems(message, socket);
                 break;
-            case SocketMessageType.MENU_ITEM_CLICKED:
-                this.handleMenuItemClick(message.payload);
-                break;
-            case SocketMessageType.MENU_ITEMS_RESPONSE:
-                log(`Unexpected message type from client: ${message.type}`);
+            case 'menuItemClicked':
+                this.handleMenuItemClicked(message, socket);
                 break;
             default:
-                log(`Unknown message type: ${message.type}`);
+                const errorResponse = JsonRpcMessage.createError(JsonRpcErrorCodes.METHOD_NOT_FOUND, "Method not found", null, message.id);
+                const errorJson = JSON.stringify(errorResponse);
+                if (errorJson) {
+                    socket.write(errorJson + '\n');
+                }
         }
     }
 
-    sendMenuItems(socket) {
-        const menuItemInfos = this.createMenuInfos(this.menuItemManager.scriptInfos);
-        const menuItemsJson = MenuItemInfo.toJson(menuItemInfos);
+    handleGetMenuItems(request, socket) {
+        try {
+            const menuItemInfos = this.createMenuInfos(this.menuItemManager.scriptInfos);
+            const responseData = { menuItems: menuItemInfos };
+            const response = JsonRpcMessage.createResponse(responseData, request.id);
+            const responseJson = JSON.stringify(response);
 
-        if (!menuItemsJson) {
-            log('Failed to serialize menu items');
-            return;
-        }
-
-        const responseMessage = new SocketMessage(SocketMessageType.MENU_ITEMS_RESPONSE, menuItemsJson);
-        const responseJson = responseMessage.toJSON();
-
-        if (!responseJson) {
-            log('Failed to serialize response message');
-            return;
-        }
-
-        socket.write(responseJson, (error) => {
-            if (error) {
-                log(`Failed to send response: ${error.message}`);
-            } else {
-                log('Sent menu items response');
+            if (!responseJson) {
+                const errorResponse = JsonRpcMessage.createError(JsonRpcErrorCodes.INTERNAL_ERROR, "Failed to serialize response", null, request.id);
+                const errorJson = JSON.stringify(errorResponse);
+                if (errorJson) {
+                    socket.write(errorJson + '\n');
+                }
+                return;
             }
-        });
+
+            socket.write(responseJson + '\n', (error) => {
+                if (error) {
+                    log(`Failed to send response: ${error.message}`);
+                } else {
+                    log('Sent menu items response');
+                }
+            });
+        } catch (error) {
+            log(`Error in handleGetMenuItems: ${error.message}`);
+            const errorResponse = JsonRpcMessage.createError(JsonRpcErrorCodes.INTERNAL_ERROR, "Internal error", error.message, request.id);
+            const errorJson = JSON.stringify(errorResponse);
+            if (errorJson) {
+                socket.write(errorJson + '\n');
+            }
+        }
     }
 
-    handleMenuItemClick(payload) {
-        const menuItemClickInfo = MenuItemClickInfo.fromJson(payload);
-        if (!menuItemClickInfo) {
-            log('Failed to parse menu item click info');
-            return;
+    handleMenuItemClicked(request, socket) {
+        try {
+            if (!request.params || typeof request.params.id !== 'number' || typeof request.params.target !== 'string') {
+                if (!request.isNotification()) {
+                    const errorResponse = JsonRpcMessage.createError(JsonRpcErrorCodes.INVALID_PARAMS, "Invalid params", null, request.id);
+                    const errorJson = JSON.stringify(errorResponse);
+                    if (errorJson) {
+                        socket.write(errorJson + '\n');
+                    }
+                }
+                return;
+            }
+
+            log(`Menu item clicked: id=${request.params.id}, target=${request.params.target}`);
+
+            const scriptInfo = this.menuItemManager.scriptInfos[request.params.id];
+            this.menuItemManager.runScript(scriptInfo, request.params.target);
+
+            // For notifications, we don't send a response
+            if (!request.isNotification()) {
+                const response = JsonRpcMessage.createResponse({}, request.id);
+                const responseJson = JSON.stringify(response);
+                if (responseJson) {
+                    socket.write(responseJson + '\n');
+                }
+            }
+        } catch (error) {
+            if (!request.isNotification()) {
+                const errorResponse = JsonRpcMessage.createError(JsonRpcErrorCodes.INTERNAL_ERROR, "Internal error", error.message, request.id);
+                const errorJson = JSON.stringify(errorResponse);
+                if (errorJson) {
+                    socket.write(errorJson + '\n');
+                }
+            }
         }
-
-        log(`Menu item clicked: id=${menuItemClickInfo.id}, target=${menuItemClickInfo.target}`);
-
-        // Get ScriptInfo object
-        const scriptInfo = this.menuItemManager.scriptInfos[menuItemClickInfo.id];
-
-        // Run script
-        this.menuItemManager.runScript(scriptInfo, menuItemClickInfo.target);
     }
 
     createMenuInfos(scriptInfos) {
@@ -465,8 +566,8 @@ module.exports = {
     ScriptInfo,
     MenuItemInfo,
     MenuItemClickInfo,
-    SocketMessage,
-    SocketMessageType,
+    JsonRpcMessage,
+    JsonRpcErrorCodes,
     ScriptTypes,
     startService
 };

@@ -121,6 +121,7 @@ class SocketServer {
         }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
+        var messageBuffer = ""
 
         while true {
             let bytesRead = recv(clientSocket, &buffer, buffer.count, 0)
@@ -129,50 +130,98 @@ class SocketServer {
                 break
             }
 
-            guard let messageString = String(bytes: buffer[..<bytesRead], encoding: .utf8) else {
+            guard let receivedString = String(bytes: buffer[..<bytesRead], encoding: .utf8) else {
                 NSLog("Failed to decode message")
                 continue
             }
 
-            handleMessage(messageString, clientSocket: clientSocket)
+            // Append to message buffer
+            messageBuffer += receivedString
+
+            // Process complete messages (delimited by newlines)
+            let lines = messageBuffer.components(separatedBy: "\n")
+            messageBuffer = lines.last ?? "" // Keep incomplete line in buffer
+
+            // Process each complete line as a message
+            for line in lines.dropLast() {
+                if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    handleMessage(line.trimmingCharacters(in: .whitespaces), clientSocket: clientSocket)
+                }
+            }
         }
     }
 
     private func handleMessage(_ messageString: String, clientSocket: Int32) {
-        guard let message = SocketMessage.fromJSON(messageString) else {
-            NSLog("Failed to parse socket message: \(messageString)")
+        guard let message = JsonRpcMessage.fromJSON(messageString) else {
+            NSLog("Failed to parse JSON-RPC message: \(messageString)")
+            let errorResponse = JsonRpcMessage(error: JsonRpcError(code: .parseError, message: "Parse error"), id: nil)
+            sendJsonRpcResponse(errorResponse, to: clientSocket)
             return
         }
 
-        NSLog("Received message type: \(message.type.rawValue)")
+        if !message.isRequest {
+            let errorResponse = JsonRpcMessage(error: JsonRpcError(code: .invalidRequest, message: "Invalid Request"), id: message.id)
+            sendJsonRpcResponse(errorResponse, to: clientSocket)
+            return
+        }
 
-        switch message.type {
-        case .requestMenuItems:
-            sendMenuItems(to: clientSocket)
-        case .menuItemClicked:
-            handleMenuItemClick(payload: message.payload)
-        case .menuItemsResponse:
-            // Not expected from client
-            NSLog("Unexpected message type from client: \(message.type.rawValue)")
+        NSLog("Received JSON-RPC method: \(message.method ?? "unknown")")
+
+        switch message.method {
+        case "getMenuItems":
+            handleGetMenuItems(message, clientSocket: clientSocket)
+        case "menuItemClicked":
+            handleMenuItemClicked(message, clientSocket: clientSocket)
+        default:
+            let errorResponse = JsonRpcMessage(error: JsonRpcError(code: .methodNotFound, message: "Method not found"), id: message.id)
+            sendJsonRpcResponse(errorResponse, to: clientSocket)
         }
     }
 
-    private func sendMenuItems(to clientSocket: Int32) {
+    private func handleGetMenuItems(_ request: JsonRpcMessage, clientSocket: Int32) {
         let menuItemInfos = createMenuInfos(scriptInfos: menuItemManager.scriptInfos)
+        let responseData = ["menuItems": menuItemInfos?.map { ["id": $0.id, "title": $0.title] } ?? []]
+        let response = JsonRpcMessage(result: responseData, id: request.id ?? 0)
+        sendJsonRpcResponse(response, to: clientSocket)
+    }
 
-        guard let menuItemsJson = MenuItemInfo.json(menuItemInfos: menuItemInfos) else {
-            NSLog("Failed to serialize menu items")
+    private func handleMenuItemClicked(_ request: JsonRpcMessage, clientSocket: Int32) {
+        guard let params = request.params,
+              let id = params["id"] as? Int,
+              let target = params["target"] as? String else {
+            if !request.isNotification {
+                let errorResponse = JsonRpcMessage(error: JsonRpcError(code: .invalidParams, message: "Invalid params"), id: request.id)
+                sendJsonRpcResponse(errorResponse, to: clientSocket)
+            }
             return
         }
 
-        let responseMessage = SocketMessage(type: .menuItemsResponse, payload: menuItemsJson)
+        NSLog("Menu item clicked: id=\(id), target=\(target)")
 
-        guard let responseJson = responseMessage.toJSON() else {
-            NSLog("Failed to serialize response message")
+        // Get target URL
+        let targetURL = URL(fileURLWithPath: target)
+
+        // Get ScriptInfo object
+        let scriptInfo = menuItemManager.scriptInfos?[id]
+
+        // Run script
+        menuItemManager.runScript(scriptInfo: scriptInfo, target: targetURL)
+
+        // For notifications, we don't send a response
+        if !request.isNotification {
+            let response = JsonRpcMessage(result: [:], id: request.id ?? 0)
+            sendJsonRpcResponse(response, to: clientSocket)
+        }
+    }
+
+    private func sendJsonRpcResponse(_ response: JsonRpcMessage, to clientSocket: Int32) {
+        guard let responseJson = response.toJSON() else {
+            NSLog("Failed to serialize JSON-RPC response")
             return
         }
 
-        let data = Data(responseJson.utf8)
+        let messageWithNewline = responseJson + "\n"
+        let data = Data(messageWithNewline.utf8)
         let result = data.withUnsafeBytes { bytes in
             send(clientSocket, bytes.bindMemory(to: UInt8.self).baseAddress, data.count, 0)
         }
@@ -180,26 +229,8 @@ class SocketServer {
         if result == -1 {
             NSLog("Failed to send response: \(String(cString: strerror(errno)))")
         } else {
-            NSLog("Sent menu items response")
+            NSLog("Sent JSON-RPC response")
         }
-    }
-
-    private func handleMenuItemClick(payload: String) {
-        guard let menuItemClickInfo = MenuItemClickInfo.fromJson(str: payload) else {
-            NSLog("Failed to parse menu item click info")
-            return
-        }
-
-        NSLog("Menu item clicked: id=\(menuItemClickInfo.id), target=\(menuItemClickInfo.target)")
-
-        // Get target URL
-        let target = URL(fileURLWithPath: menuItemClickInfo.target)
-
-        // Get ScriptInfo object
-        let scriptInfo = menuItemManager.scriptInfos?[menuItemClickInfo.id]
-
-        // Run script
-        menuItemManager.runScript(scriptInfo: scriptInfo, target: target)
     }
 
     // Convert script info array to menu item info array
